@@ -4,7 +4,7 @@ class El{constructor(){this.innerHTML='';this.textContent='';this.value='';this.
 const doc={querySelector:s=>nodes[s]??=new El(),querySelectorAll:()=>[],addEventListener(){}};
 const context=vm.createContext({document:doc,window:{addEventListener(){},scrollTo(){}},localStorage:{getItem:k=>storage[k]??null,setItem:(k,v)=>storage[k]=v,removeItem:k=>delete storage[k]},Date,crypto:webcrypto,AbortController,URL,Blob,console,setTimeout,clearTimeout,setInterval,clearInterval,fetch:async(url,options)=>{requests.push({url,options});const next=responses.shift();if(next instanceof Error)throw next;if(!next)throw Error('Unexpected request');return next}});
 const run=s=>vm.runInContext(s,context);
-run(['questions.js','randomizer.js'].map(f=>fs.readFileSync('dist/'+f,'utf8')).join('\n')+'\nconst SUPABASE_CONFIG={url:"https://example.supabase.co",publishableKey:"sb_publishable_example"};\n'+['app.js','scores.js'].map(f=>fs.readFileSync('dist/'+f,'utf8')).join('\n'));
+run(['questions.js','randomizer.js','hard-questions.js'].map(f=>fs.readFileSync('./'+f,'utf8')).join('\n')+'\nconst SUPABASE_CONFIG={url:"https://example.supabase.co",publishableKey:"sb_publishable_example"};\n'+['app.js','scores.js'].map(f=>fs.readFileSync('./'+f,'utf8')).join('\n'));
 const ok=data=>({ok:true,status:200,headers:{get:()=>null},json:async()=>data});
 const blank={ok:true,status:201,headers:{get:()=>null},json:async()=>{throw Error('Must not parse empty response')}};
 run('QUESTIONS=createSession();currentResult={date:Date.now(),duration:300,answers:QUESTIONS.map(q=>({id:q.id,d:q.d,correct:true,status:"answered",answer:q.answer,seconds:1})),questions:QUESTIONS};screen="result"');
@@ -23,5 +23,11 @@ storage['mindscope-results-v1']=run('JSON.stringify([currentResult])');['#scoreN
  responses.push(ok(Array.from({length:26},(_,i)=>({id:String(i),nickname:'参加者',score:10,total:30,d0:2,d1:2,d2:2,d3:2,d4:2,duration_seconds:100,completed_at:new Date().toISOString()}))));await run('loadScores()');assert.equal(nodes['#nextScores'].disabled,false);assert.equal((nodes['#scoresList'].innerHTML.match(/class="community-row"/g)||[]).length,25);
  run('scorePage=1');responses.push(ok([]));await run('loadScores()');assert.match(requests.at(-1).url,/offset=25/);assert.equal(nodes['#previousScores'].disabled,false);
  responses.push({ok:false,status:500,json:async()=>({})});await run('loadScores()');assert.match(nodes['#scoresList'].innerHTML,/再読み込み/);
- console.log('PASS: nickname validation; explicit display consent; score payload; duplicate-safe UUID; POST and retry; network failure; HTML escaping; pagination and read failures. Remote database verification still requires selecting a Supabase project.');
+ run('QUESTIONS=createSession(undefined,"hard");currentResult={mode:"hard",date:Date.now(),duration:300,answers:QUESTIONS.map(q=>({id:q.id,d:q.d,correct:true,status:"answered",answer:q.answer,seconds:1})),questions:QUESTIONS}');
+ assert.equal(run('makeSubmission(currentResult,"たか").mode'),'hard');assert.equal(payload.mode,'standard');
+ assert.throws(()=>run('makeSubmission({...currentResult,mode:"bad"},"たか")'));
+ run('screen="scores";scoreMode="hard";scorePage=0');responses.push(ok([{nickname:'難問たか',mode:'hard',score:30,total:30,d0:6,d1:6,d2:6,d3:6,d4:6,duration_seconds:300,completed_at:new Date().toISOString()}]));await run('loadScores()');
+ assert.match(requests.at(-1).url,/mode=eq.hard/);assert.match(nodes['#scoresList'].innerHTML,/高難易度版/);
+ run('scoreMode="standard"');responses.push(ok([]));await run('loadScores()');assert.match(requests.at(-1).url,/mode=eq.standard/);
+ console.log('PASS: nickname and consent; both mode payloads; duplicate retries; escaped records; difficulty filters and pagination.');
 })().catch(e=>{console.error(e);process.exitCode=1});

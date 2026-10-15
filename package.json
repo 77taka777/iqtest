@@ -1,10 +1,12 @@
 {
   "name": "mindscope-iqtest",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "test": "node tests/qa.cjs && node tests/cloud.cjs"
+    "build": "node build.mjs",
+    "test": "node qa.cjs && node cloud.cjs"
   },
-  "engines": { "node": "24.x" }
+  "engines": {
+    "node": "24.x"
+  }
 }

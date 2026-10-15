@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');const vm=require('node:vm');
-const {QUESTIONS:q,DOMAINS,SEARCH_ROWS,PAIRS,SCAN_ROWS}=require('../dist/questions.js');
+const {QUESTIONS:q,DOMAINS,SEARCH_ROWS,PAIRS,SCAN_ROWS}=require('./questions.js');
 assert.equal(q.length,20);assert.equal(new Set(q.map(x=>x.id)).size,20);
 DOMAINS.forEach((d,i)=>assert.equal(q.filter(x=>x.d===i).length,4));
 q.forEach(x=>{assert.ok(x.explanation);if(x.options){assert.equal(x.options.length,4);assert.equal(new Set(x.options).size,4);assert.ok(Number.isInteger(x.answer)&&x.answer>=0&&x.answer<4)}else assert.equal(x.answer.length,x.maxLength)});
@@ -26,7 +26,7 @@ class El{constructor(){this.innerHTML='';this.textContent='';this.disabled=false
 const doc={querySelector:s=>nodes[s]??=(new El()),querySelectorAll:()=>[],addEventListener:(k,f)=>handlers[k]=f,createElement:()=>new El(),hidden:false};
 class Clock extends Date{constructor(...args){super(...(args.length?args:[now]))}static now(){return now}}
 const ctx=vm.createContext({document:doc,window:{scrollTo(){},addEventListener(){}},localStorage:{getItem:k=>storage[k]??null,setItem:(k,v)=>{if(storageFails)throw Error('Full');storage[k]=v},removeItem:k=>delete storage[k]},Date:Clock,setInterval:()=>1,clearInterval(){},setTimeout:f=>{timeouts.push(f);return timeouts.length},clearTimeout(){},console,Blob,URL});
-vm.runInContext(fs.readFileSync('dist/questions.js','utf8')+'\n'+fs.readFileSync('dist/randomizer.js','utf8')+'\n'+fs.readFileSync('dist/supabase-config.js','utf8')+'\n'+fs.readFileSync('dist/app.js','utf8')+'\n'+fs.readFileSync('dist/scores.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync('./questions.js','utf8')+'\n'+fs.readFileSync('./randomizer.js','utf8')+'\n'+fs.readFileSync('./hard-questions.js','utf8')+'\n'+fs.readFileSync('./supabase-config.js','utf8')+'\n'+fs.readFileSync('./app.js','utf8')+'\n'+fs.readFileSync('./scores.js','utf8'),ctx);
 const run=s=>vm.runInContext(s,ctx);
 assert.match(nodes['#app'].innerHTML,/思考の輪郭/);
 run('begin()');assert.equal(run('state.index'),0);
@@ -74,4 +74,49 @@ assert.equal(seen.size,60);assert.equal(signatures.size,1000);
 // Review uses snapshots, even after another random session starts.
 run('begin()');for(let i=0;i<30;i++)run('state.sectionIntro=false;renderTest();phase="answer";selected=QUESTIONS[state.index].answer;itemStarted=Date.now();if(QUESTIONS[state.index].speed)deadline=Date.now()+25000;record()');
 const saved=run('JSON.stringify(history()[0])');run('begin()');run(`showResults(${saved})`);assert.equal(run('JSON.stringify(QUESTIONS)'),JSON.stringify(JSON.parse(saved).questions));assert.match(nodes['#app'].innerHTML,/全30問の解説/);
-console.log('PASS: 1000 random sessions, all 60 templates, 30 unique items and 6 per domain; shuffled scoring; generated memory and speed answers; full and zero scores; deadlines; interruptions; storage; legacy history; review snapshots.');
+// Hard mode uses a disjoint pool; verify generated answers independently.
+assert.equal(run('HARD_QUESTIONS.length'),40);
+assert.equal(run('new Set([...QUESTION_BANK,...HARD_QUESTIONS].map(q=>q.id)).size'),100);
+assert.match(nodes['#app'].innerHTML,/通常版/);
+run("prepare('hard')");assert.match(nodes['#modalContent'].innerHTML,/専用の40問/);assert.match(nodes['#modalContent'].innerHTML,/各20秒/);assert.match(nodes['#modalContent'].innerHTML,/0.75秒/);
+const hardSeen=new Set();
+function transformIndependently(bits,operations,n){let cells=bits.split('');for(const op of operations){const next=Array(n*n);for(let row=0;row<n;row++)for(let col=0;col<n;col++){const r=op==='mirror'?row:col,c=op==='mirror'?n-1-col:n-1-row;next[r*n+c]=cells[row*n+col]}cells=next}return cells.join('')}
+const xorBits=(a,b)=>a.split('').map((x,i)=>x===b[i]?'0':'1').join('');
+for(let t=0;t<500;t++){
+ const session=JSON.parse(run('JSON.stringify(createSession(seeded,"hard"))'));
+ assert.equal(session.length,30);assert.equal(new Set(session.map(q=>q.id)).size,30);
+ for(let d=0;d<5;d++)assert.ok(session.slice(d*6,(d+1)*6).every(q=>q.d===d));
+ for(const x of session){hardSeen.add(x.id);assert.equal(x.difficulty,'hard');assert.ok(x.prompt&&x.explanation);
+  if(x.options){assert.equal(x.options.length,4);assert.equal(new Set(x.options).size,4);assert.ok(Number.isInteger(x.answer)&&x.answer>=0&&x.answer<4)}
+  if(x.visual==='transform'){assert.equal(x.source.length,25);assert.equal(transformIndependently(x.source,x.operations,5),x.options[x.answer]);assert.ok(x.options.every(s=>s.length===25))}
+  if(x.visual==='hardMatrix')for(let r=0;r<3;r++){const a=x.matrix[r*3],b=x.matrix[r*3+1],expected=x.id===115?xorBits(a,transformIndependently(b,['turn'],3)):transformIndependently(xorBits(a,b),['turn'],3);assert.equal(expected,r===2?x.options[x.answer]:x.matrix[r*3+2])}
+  if(x.d===3){assert.equal(x.memoryMs,750);let a;
+   if(x.memoryRule==='oddEven'){a=[...x.memory].sort((a,b)=>(a%2===b%2?a-b:a%2?-1:1));}
+   else if(x.memoryRule==='sort')a=[...x.memory].sort((a,b)=>a-b);
+   else if(x.memoryRule==='tail')a=x.memory.slice(-x.maxLength);
+   else a=[...x.memory].reverse();
+   assert.equal(x.answer,a.join(''));assert.equal(x.answer.length,x.maxLength);
+  }
+  if(x.speed)assert.equal(x.limit,20);
+  if(x.visual==='search'){assert.equal(x.rows.length,8);assert.equal(x.rows.flatMap(r=>r.split(' ')).filter(v=>v===x.target).length,Number(x.options[x.answer]));}
+  if(x.visual==='scan'){assert.equal(x.rows.length,6);let n=0;for(const row of x.rows){const a=row.split(' ');assert.equal(a.length,10);for(let i=1;i<a.length;i++)if(a[i-1]==='○'&&a[i]==='△')n++}assert.equal(n,Number(x.options[x.answer]))}
+  if(x.visual==='pairs'){assert.equal(x.pairs.length,12);assert.ok(x.pairs.every(([a,b])=>a.length===8&&b.length===8));assert.equal(x.pairs.filter(([a,b])=>a===b).length,parseInt(x.options[x.answer]))}
+  if(x.visual==='coding'){assert.equal(x.key.length,7);assert.equal(x.symbols.length,9);assert.equal(x.symbols.map(s=>new Map(x.key).get(s)).join(''),x.answer)}
+ }
+}
+assert.equal(hardSeen.size,40);
+const hardMath=JSON.parse(run('JSON.stringify(HARD_QUESTIONS.filter(q=>q.d===2))'));
+const value=id=>hardMath.find(q=>q.id===id).options[hardMath.find(q=>q.id===id).answer];
+assert.equal(value(117),String(326*6+1));
+assert.deepEqual(Array.from({length:300},(_,i)=>i+100).filter(n=>n%5===2&&n%7===4&&n%9===6),[Number(value(118))]);
+assert.equal(value(119),'1/3');assert.ok(Math.abs(1/(1/6+1/8+1/12)*2-16/3)<1e-12);assert.equal(value(120),'5時間20分');
+assert.deepEqual(['A','B','C'].filter(c=>[c==='B',c==='C',c!=='C'].filter(Boolean).length===1),['A','C']);
+assert.deepEqual(perms(['A','B','C','D','E']).filter(p=>p.indexOf('C')-p.indexOf('A')===2&&p.indexOf('D')===p.indexOf('A')+1&&p.indexOf('B')===p.indexOf('E')+1&&p.indexOf('C')!==4),[['A','D','C','E','B']]);
+assert.equal(perms(['1','2','3','4','5']).map(p=>p.slice(0,3).join('')).filter((v,i,a)=>a.indexOf(v)===i).filter(v=>Number(v)%6===0).length,parseInt(value(123)));
+assert.equal(0.2*parseInt(value(124)),0.12*(parseInt(value(124))+80));
+now+=1000;run("prepare('hard');begin()");assert.equal(run('state.mode'),'hard');assert.match(nodes['#app'].innerHTML,/高難易度版/);
+for(let i=0;i<30;i++)run('state.sectionIntro=false;renderTest();phase="answer";selected=QUESTIONS[state.index].answer;itemStarted=Date.now();if(QUESTIONS[state.index].speed)deadline=Date.now()+QUESTIONS[state.index].limit*1000;record()');
+assert.equal(run('currentResult.mode'),'hard');assert.equal(run('currentResult.answers.filter(a=>a.correct).length'),30);assert.equal(run('history()[0].mode'),'hard');assert.match(nodes['#app'].innerHTML,/高難易度版/);
+const hardSaved=run('JSON.stringify(history()[0])');run("prepare('standard');begin()");run(`showResults(${hardSaved})`);assert.equal(run('JSON.stringify(QUESTIONS)'),JSON.stringify(JSON.parse(hardSaved).questions));
+run("prepare('hard');begin();state.index=24;state.sectionIntro=false;renderTest();reveal();selected=QUESTIONS[24].answer");now+=20001;run('record()');assert.equal(run('state.answers[0].status'),'timeout');
+console.log('PASS: 1000 standard and 500 hard random sessions; all 100 templates; independent hard visual and numerical checks; both modes, snapshots, scoring, memory rules, deadlines and legacy history.');

@@ -4,7 +4,9 @@ begin;
 create table public.mindscope_scores (
  id uuid primary key,
  nickname text not null check (char_length(nickname) between 1 and 20 and nickname = btrim(nickname) and nickname !~ '[[:cntrl:]]'),
+ mode text not null default 'standard' check (mode in ('standard','hard')),
  total smallint not null check (total in (20,30)),
+ constraint mindscope_scores_hard_total check (mode <> 'hard' or total = 30),
  d0 smallint not null check (d0 between 0 and total/5),
  d1 smallint not null check (d1 between 0 and total/5),
  d2 smallint not null check (d2 between 0 and total/5),
@@ -16,10 +18,11 @@ create table public.mindscope_scores (
  created_at timestamptz not null default now()
 );
 create index mindscope_scores_recent on public.mindscope_scores (created_at desc, id desc);
+create index mindscope_scores_mode_recent on public.mindscope_scores (mode, created_at desc, id desc);
 alter table public.mindscope_scores enable row level security;
 revoke all on public.mindscope_scores from public, anon, authenticated;
 grant select on public.mindscope_scores to anon, authenticated;
-grant insert (id,nickname,total,d0,d1,d2,d3,d4,duration_seconds,completed_at) on public.mindscope_scores to anon, authenticated;
+grant insert (id,nickname,mode,total,d0,d1,d2,d3,d4,duration_seconds,completed_at) on public.mindscope_scores to anon, authenticated;
 create policy "read_shared_mindscope_scores" on public.mindscope_scores for select to anon, authenticated using (true);
 create policy "insert_shared_mindscope_scores" on public.mindscope_scores for insert to anon, authenticated with check (true);
 -- No update/delete grants or policies: participants cannot modify others' records.
